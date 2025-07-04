@@ -45,8 +45,8 @@ ADD_LP_AMOUNTS = {
 }
 
 # Pengaturan Jeda Waktu (Delay) antar transaksi dalam detik
-JEDA_MINIMUM = 20
-JEDA_MAKSIMUM = 60
+JEDA_MINIMUM = 5
+JEDA_MAKSIMUM = 10
 ### --- AKHIR KONFIGURASI --- ###
 
 
