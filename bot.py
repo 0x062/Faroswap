@@ -23,35 +23,27 @@ load_dotenv()
 wib = pytz.timezone('Asia/Jakarta')
 
 ### --- KONFIGURASI --- ###
-# Ubah semua pengaturan Anda di sini.
-
+# Ubah semua pengaturan Anda di sini jika perlu.
 # Kunci Pribadi dan RPC URL akan dibaca dari file .env
 PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-# BARU: Membaca RPC URL dari .env, dengan nilai default jika tidak ditemukan
 RPC_URL = os.getenv("RPC_URL", "https://testnet.dplabs-internal.com")
 
 # Pengaturan Jumlah Aksi
 JUMLAH_SWAP = 5
-JUMLAH_TAMBAH_LP = 0 # Dinonaktifkan untuk saat ini
 
 # Pengaturan Nominal untuk setiap Aksi (dalam format desimal, contoh: 0.01)
 SWAP_AMOUNTS = {
     "PHRS": 0.001, "WPHRS": 0.001, "USDC": 0.01,
     "USDT": 0.01, "WETH": 0.00001, "WBTC": 0.000001,
 }
-ADD_LP_AMOUNTS = {
-    "WPHRS": 0.001, "USDC": 0.01, "USDT": 0.01,
-    "WETH": 0.00001, "WBTC": 0.000001,
-}
 
 # Pengaturan Jeda Waktu (Delay) antar transaksi dalam detik
-JEDA_MINIMUM = 5
-JEDA_MAKSIMUM = 10
+JEDA_MINIMUM = 7
+JEDA_MAKSIMUM = 15
 ### --- AKHIR KONFIGURASI --- ###
 
 
 class Faroswap:
-    # BERUBAH: __init__ sekarang menerima rpc_url sebagai argumen
     def __init__(self, rpc_url: str) -> None:
         self.HEADERS = {
             "Accept": "application/json, text/plain, */*",
@@ -59,6 +51,9 @@ class Faroswap:
             "Referer": "https://faroswap.xyz/",
             "User-Agent": FakeUserAgent().random
         }
+        
+        # Menetapkan Chain ID secara eksplisit untuk keandalan
+        self.chain_id = 688688
         
         # Alamat Kontrak
         self.PHRS_CONTRACT_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
@@ -68,15 +63,12 @@ class Faroswap:
         self.WETH_CONTRACT_ADDRESS = "0x4E28826d32F1C398DED160DC16Ac6873357d048f"
         self.WBTC_CONTRACT_ADDRESS = "0x8275c526d1bCEc59a31d673929d3cE8d108fF5c7"
         self.MIXSWAP_ROUTER_ADDRESS = "0x3541423f25A1Ca5C98fdBCf478405d3f0aaD1164"
-        self.POOL_ROUTER_ADDRESS = "0xf05Af5E9dC3b1dd3ad0C087BD80D7391283775e0"
         
         self.tickers = ["WPHRS", "USDC", "USDT", "WETH", "WBTC"]
         
         # ABI Kontrak
         self.ERC20_CONTRACT_ABI = json.loads('''[{"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"address","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},{"type":"function","name":"allowance","stateMutability":"view","inputs":[{"name":"owner","type":"address"},{"name":"spender","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},{"type":"function","name":"approve","stateMutability":"nonpayable","inputs":[{"name":"spender","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},{"type":"function","name":"decimals","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint8"}]}]''')
-        self.UNISWAP_V2_CONTRACT_ABI = [{"type":"function","name":"getAmountsOut","stateMutability":"view","inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"},{"internalType":"uint256[]","name":"fees","type":"uint256[]"}],"outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}]},{"type":"function","name":"addLiquidity","stateMutability":"nonpayable","inputs":[{"internalType":"address","name":"tokenA","type":"address"},{"internalType":"address","name":"tokenB","type":"address"},{"internalType":"uint256","name":"fee","type":"uint256"},{"internalType":"uint256","name":"amountADesired","type":"uint256"},{"internalType":"uint256","name":"amountBDesired","type":"uint256"},{"internalType":"uint256","name":"amountAMin","type":"uint256"},{"internalType":"uint256","name":"amountBMin","type":"uint256"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"deadline","type":"uint256"}],"outputs":[{"internalType":"uint256","name":"amountA","type":"uint256"},{"internalType":"uint256","name":"amountB","type":"uint256"},{"internalType":"uint256","name":"liquidity","type":"uint256"}]}]
         
-        # BERUBAH: Menggunakan rpc_url yang diberikan saat inisialisasi
         self.web3 = Web3(Web3.HTTPProvider(rpc_url))
 
     def log(self, message):
@@ -132,6 +124,7 @@ class Faroswap:
             'from': address,
             'gasPrice': self.web3.to_wei('1', 'gwei'),
             'nonce': self.web3.eth.get_transaction_count(address),
+            'chainId': self.chain_id
         })
         signed_tx = account.sign_transaction(approve_tx)
         tx_hash = self.web3.eth.send_raw_transaction(signed_tx.raw_transaction)
@@ -142,7 +135,7 @@ class Faroswap:
     async def get_dodo_route(self, from_token, to_token, amount_wei, user_address):
         url = (
             f"https://api.dodoex.io/route-service/v2/widget/getdodoroute?"
-            f"chainId=688688&deadLine={int(time.time()) + 300}&apikey=a37546505892e1a952"
+            f"chainId={self.chain_id}&deadLine={int(time.time()) + 300}&apikey=a37546505892e1a952"
             f"&slippage=1&fromTokenAddress={from_token}&toTokenAddress={to_token}"
             f"&fromAmount={amount_wei}&userAddr={user_address}&estimateGas=true"
         )
@@ -176,7 +169,7 @@ class Faroswap:
         balance = await self.get_token_balance(address, from_token_address)
         if balance < amount_decimal:
             self.log(f"{Fore.RED}Saldo {from_ticker} tidak cukup. Saldo: {balance}, butuh: {amount_decimal}")
-            return
+            return False
 
         if from_token_address == self.PHRS_CONTRACT_ADDRESS:
             decimals = 18
@@ -189,13 +182,13 @@ class Faroswap:
 
         route_data = await self.get_dodo_route(from_token_address, to_token_address, amount_wei, address)
         if not route_data:
-            return
+            return False
 
         if from_token_address != self.PHRS_CONTRACT_ADDRESS:
             approved = await self.approve_token(account, Web3.to_checksum_address(route_data['to']), from_token_address, amount_wei)
             if not approved:
                 self.log(f"{Fore.RED}Gagal approve token, swap dibatalkan.")
-                return
+                return False
 
         swap_tx = {
             'to': Web3.to_checksum_address(route_data['to']),
@@ -204,6 +197,7 @@ class Faroswap:
             'data': route_data['data'],
             'gasPrice': self.web3.to_wei('1', 'gwei'),
             'nonce': self.web3.eth.get_transaction_count(address),
+            'chainId': self.chain_id
         }
         try:
             gas_estimate = self.web3.eth.estimate_gas(swap_tx)
@@ -214,7 +208,8 @@ class Faroswap:
         
         signed_tx = account.sign_transaction(swap_tx)
         tx_hash = self.web3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        await self.wait_for_receipt(tx_hash)
+        receipt = await self.wait_for_receipt(tx_hash)
+        return receipt is not None
 
     async def run(self):
         if not PRIVATE_KEY:
@@ -231,7 +226,6 @@ class Faroswap:
             for i in range(JUMLAH_SWAP):
                 self.log(f"{Style.BRIGHT}--- Swap #{i + 1}/{JUMLAH_SWAP} ---")
                 
-                # --- LOGIKA BARU UNTUK MEMILIH PASANGAN TOKEN ---
                 from_ticker = ""
                 to_ticker = ""
                 
@@ -239,51 +233,42 @@ class Faroswap:
                 if i == 0:
                     self.log(f"{Fore.YELLOW}Info: Swap pertama, memaksa jual PHRS untuk mendapatkan token lain.")
                     from_ticker = "PHRS"
-                    # Pilih token tujuan secara acak dari daftar yang BUKAN PHRS
                     to_ticker = random.choice(self.tickers) 
                 else:
-                    # Untuk swap selanjutnya, periksa saldo dan pilih token yang dimiliki
                     self.log("Info: Mencari token dengan saldo yang cukup untuk di-swap...")
-                    
-                    # Buat daftar token yang saldonya mencukupi
                     eligible_tickers = []
                     all_possible_tickers = ["PHRS"] + self.tickers
                     for ticker in all_possible_tickers:
-                        balance = await self.get_token_balance(address, getattr(self, f"{ticker}_CONTRACT_ADDRESS", self.PHRS_CONTRACT_ADDRESS))
+                        # Dapatkan alamat kontrak dengan aman
+                        contract_address = getattr(self, f"{ticker}_CONTRACT_ADDRESS", self.PHRS_CONTRACT_ADDRESS)
+                        balance = await self.get_token_balance(address, contract_address)
                         if balance > SWAP_AMOUNTS.get(ticker, 0):
                             eligible_tickers.append(ticker)
                     
                     if not eligible_tickers:
                         self.log(f"{Fore.RED}Tidak ada token dengan saldo yang cukup untuk di-swap. Menghentikan fase swap.")
-                        break # Keluar dari loop swap
+                        break
 
-                    # Pilih token sumber dari yang saldonya cukup
                     from_ticker = random.choice(eligible_tickers)
-                    
-                    # Pilih token tujuan (tidak boleh sama dengan token sumber)
                     temp_tickers = self.tickers + ["PHRS"]
                     to_ticker = random.choice(temp_tickers)
                     while from_ticker == to_ticker:
                         to_ticker = random.choice(temp_tickers)
                 
-                # --- AKHIR LOGIKA BARU ---
-
                 self.log(f"Dipilih pasangan: {from_ticker} -> {to_ticker}")
                 amount_to_swap = SWAP_AMOUNTS.get(from_ticker, 0.001)
 
                 await self.perform_swap(account, from_ticker, to_ticker, amount_to_swap)
                 
-                # Hanya jeda jika ini bukan transaksi terakhir
                 if i < JUMLAH_SWAP - 1:
                     delay = random.randint(JEDA_MINIMUM, JEDA_MAKSIMUM)
                     self.log(f"Menunggu {delay} detik sebelum transaksi berikutnya...")
                     await asyncio.sleep(delay)
         
         self.log(f"{Style.BRIGHT}{Fore.GREEN}\nSemua tugas telah selesai untuk akun {address}.")
-        
+
 async def main():
     try:
-        # BERUBAH: Mengirim RPC_URL saat membuat instance bot
         bot = Faroswap(rpc_url=RPC_URL)
         await bot.run()
     except Exception as e:
