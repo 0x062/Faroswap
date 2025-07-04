@@ -231,23 +231,56 @@ class Faroswap:
             for i in range(JUMLAH_SWAP):
                 self.log(f"{Style.BRIGHT}--- Swap #{i + 1}/{JUMLAH_SWAP} ---")
                 
-                available_tickers = ["PHRS"] + self.tickers
-                from_ticker = random.choice(available_tickers)
-                to_ticker = random.choice(available_tickers)
-                while from_ticker == to_ticker:
-                    to_ticker = random.choice(available_tickers)
+                # --- LOGIKA BARU UNTUK MEMILIH PASANGAN TOKEN ---
+                from_ticker = ""
+                to_ticker = ""
                 
+                # Untuk swap pertama, selalu gunakan PHRS sebagai sumber
+                if i == 0:
+                    self.log(f"{Fore.YELLOW}Info: Swap pertama, memaksa jual PHRS untuk mendapatkan token lain.")
+                    from_ticker = "PHRS"
+                    # Pilih token tujuan secara acak dari daftar yang BUKAN PHRS
+                    to_ticker = random.choice(self.tickers) 
+                else:
+                    # Untuk swap selanjutnya, periksa saldo dan pilih token yang dimiliki
+                    self.log("Info: Mencari token dengan saldo yang cukup untuk di-swap...")
+                    
+                    # Buat daftar token yang saldonya mencukupi
+                    eligible_tickers = []
+                    all_possible_tickers = ["PHRS"] + self.tickers
+                    for ticker in all_possible_tickers:
+                        balance = await self.get_token_balance(address, getattr(self, f"{ticker}_CONTRACT_ADDRESS", self.PHRS_CONTRACT_ADDRESS))
+                        if balance > SWAP_AMOUNTS.get(ticker, 0):
+                            eligible_tickers.append(ticker)
+                    
+                    if not eligible_tickers:
+                        self.log(f"{Fore.RED}Tidak ada token dengan saldo yang cukup untuk di-swap. Menghentikan fase swap.")
+                        break # Keluar dari loop swap
+
+                    # Pilih token sumber dari yang saldonya cukup
+                    from_ticker = random.choice(eligible_tickers)
+                    
+                    # Pilih token tujuan (tidak boleh sama dengan token sumber)
+                    temp_tickers = self.tickers + ["PHRS"]
+                    to_ticker = random.choice(temp_tickers)
+                    while from_ticker == to_ticker:
+                        to_ticker = random.choice(temp_tickers)
+                
+                # --- AKHIR LOGIKA BARU ---
+
+                self.log(f"Dipilih pasangan: {from_ticker} -> {to_ticker}")
                 amount_to_swap = SWAP_AMOUNTS.get(from_ticker, 0.001)
 
                 await self.perform_swap(account, from_ticker, to_ticker, amount_to_swap)
                 
+                # Hanya jeda jika ini bukan transaksi terakhir
                 if i < JUMLAH_SWAP - 1:
                     delay = random.randint(JEDA_MINIMUM, JEDA_MAKSIMUM)
                     self.log(f"Menunggu {delay} detik sebelum transaksi berikutnya...")
                     await asyncio.sleep(delay)
         
         self.log(f"{Style.BRIGHT}{Fore.GREEN}\nSemua tugas telah selesai untuk akun {address}.")
-
+        
 async def main():
     try:
         # BERUBAH: Mengirim RPC_URL saat membuat instance bot
